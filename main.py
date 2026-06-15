@@ -31,14 +31,19 @@ def create_publickey(private_key):
     return data
 
 
+def read_privatekey(path):
+    with open(path, 'rb') as pf:
+        return serialization.load_pem_private_key(
+            pf.read(), password=None, backend=default_backend()
+        )
+    return None
+
+
 def create_privatekey(path, crxd):
-    if os.path.exists(path):
-        with open(path, 'rb') as pf:
-            key = serialization.load_pem_private_key(
-                pf.read(), password=None, backend=default_backend()
-            )
-            pem = pf.read()
-            return pem, key
+    key = read_privatekey(path)
+    if key != None:
+        return key
+
     pemfile = '%s.pem' % crxd
     with open(pemfile, 'wb') as pf:
         private_key = rsa.generate_private_key(
@@ -50,7 +55,7 @@ def create_privatekey(path, crxd):
             encryption_algorithm=serialization.NoEncryption(),
         )
         pf.write(pem)
-        return pem, private_key
+        return private_key
 
 
 def get_zipped_data_and_basename_from_dir_or_zip(dir_or_zip):
@@ -67,7 +72,7 @@ def get_zipped_data_and_basename_from_dir_or_zip(dir_or_zip):
 def package(dir_or_zip, private_key, output):
     zipdata, basename = get_zipped_data_and_basename_from_dir_or_zip(dir_or_zip)
 
-    pem, private_key = create_privatekey(private_key, basename)
+    private_key = create_privatekey(private_key, basename)
     public_key = create_publickey(private_key)
 
     signed_header_data_str = create_signed_header_data_str(public_key)
@@ -76,6 +81,12 @@ def package(dir_or_zip, private_key, output):
     header_str = create_header_str(public_key, signed, signed_header_data_str)
 
     save_crx_file(header_str, zipdata, output, basename)
+
+
+def readable_id_from_privatekey(private_key):
+    alphahex = str.maketrans("0123456789abcdef", "abcdefghijklmnop")
+    crx_id = get_crx_id(create_publickey(read_privatekey(private_key)))
+    return crx_id.hex().translate(alphahex)
 
 
 def sign(signed_header_data_str, zipped, private_key):
@@ -122,8 +133,7 @@ def zipdir(directory, inject=None):
     raise IOError('Failed to create zip')
 
 
-def argparser():
-    parser = argparse.ArgumentParser(description='crx3 creator')
+def packager_argparser(parser):
     parser.add_argument(
         'src',
         type=str,
@@ -140,13 +150,36 @@ def argparser():
         default='',
         help='Private key location if no private key script will generate and save private key',
     )
+
+
+def id_argparser(parser):
+    parser.add_argument(
+        '-pem',
+        '--private-key',
+        type=str,
+        help='Location from which to load the private key',
+        required=True,
+    )
+
+
+def argparser():
+    parser = argparse.ArgumentParser(description='crx3 utility')
+    subparsers = parser.add_subparsers(dest='subcommand')
+    packager_argparser(subparsers.add_parser("package", help="packages an extension"))
+    id_argparser(subparsers.add_parser("id", help="prints an extension id"))
     return parser
 
 
 def cli():
     parser = argparser()
     args = parser.parse_args()
-    package(args.src, args.private_key, args.output)
+    match args.subcommand:
+        case "package":
+            package(args.src, args.private_key, args.output)
+        case "id":
+            print(readable_id_from_privatekey(args.private_key))
+        case None:
+            parser.print_help()
 
 
 def get_crx_id(public_key):
