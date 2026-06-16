@@ -39,13 +39,8 @@ def read_privatekey(path):
     return None
 
 
-def create_privatekey(path, crxd):
-    key = read_privatekey(path)
-    if key != None:
-        return key
-
-    pemfile = '%s.pem' % crxd
-    with open(pemfile, 'wb') as pf:
+def create_privatekey(path):
+    with open(path, 'wb') as pf:
         private_key = rsa.generate_private_key(
             public_exponent=65537, key_size=2048, backend=default_backend()
         )
@@ -72,7 +67,7 @@ def get_zipped_data_and_basename_from_dir_or_zip(dir_or_zip):
 def package(dir_or_zip, private_key, output):
     zipdata, basename = get_zipped_data_and_basename_from_dir_or_zip(dir_or_zip)
 
-    private_key = create_privatekey(private_key, basename)
+    private_key = read_privatekey(private_key)
     public_key = create_publickey(private_key)
 
     signed_header_data_str = create_signed_header_data_str(public_key)
@@ -162,11 +157,22 @@ def id_argparser(parser):
     )
 
 
+def key_argparser(parser):
+    parser.add_argument(
+        '-pem',
+        '--private-key',
+        type=str,
+        help='Location to which to save the private key',
+        required=True,
+    )
+
+
 def argparser():
     parser = argparse.ArgumentParser(description='crx3 utility')
     subparsers = parser.add_subparsers(dest='subcommand')
     packager_argparser(subparsers.add_parser("package", help="packages an extension"))
     id_argparser(subparsers.add_parser("id", help="prints an extension id"))
+    key_argparser(subparsers.add_parser("key", help="creates a private key"))
     return parser
 
 
@@ -178,6 +184,8 @@ def cli():
             package(args.src, args.private_key, args.output)
         case "id":
             print(readable_id_from_privatekey(args.private_key))
+        case "key":
+            create_privatekey(args.private_key)
         case None:
             parser.print_help()
 
